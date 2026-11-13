@@ -1,0 +1,14 @@
+{
+  "name": "waterunmark",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser-local translucent watermark deblending workbench",
+  "scripts": {
+    "dev": "node server.mjs",
+    "start": "node server.mjs",
+    "test": "node --test",
+    "check": "node --check src/app.js && node --check src/core.js && node --check src/worker.js && node --check server.mjs"
+  },
+  "engines": { "node": ">=20" }
+}
