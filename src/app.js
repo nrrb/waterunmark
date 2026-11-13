@@ -9,7 +9,11 @@ const colors=['#d2ed86','#bdabf7','#82d7f0','#f0b982'];
 const active=()=>patterns.find(p=>p.id===activeId);
 const status=text=>$('status').textContent=text;
 const escapeHTML=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const makeId=()=>crypto.randomUUID();
+let idSequence=0;
+// Pattern IDs are local identifiers; plain HTTP may not expose randomUUID.
+const makeId=()=>typeof globalThis.crypto?.randomUUID==='function'
+  ? globalThis.crypto.randomUUID()
+  : `pattern-${Date.now().toString(36)}-${(++idSequence).toString(36)}`;
 const copyPatterns=()=>patterns.map(p=>({...p,mask:p.mask?.slice(),boxes:p.boxes.map(b=>({...b}))}));
 for(const [id,label]of[['opacity','Text opacity'],['brush','Brush size'],['radius','Background radius'],['threshold','Stroke threshold'],['softness','Edge softness'],['confidence','Match confidence']])$(id).setAttribute('aria-label',label);
 for(const label of document.querySelectorAll('label.button')){
