@@ -8,18 +8,23 @@
 <div class="intro"><span class="eyebrow">TRANSLUCENT TEXT → CLEANER IMAGE</span><h1>A little less<br>watermark.</h1><p>Select the pattern. Refine its strokes.<br>Dial back the overlay.</p></div>
 <section><div class="section-title"><h2><span>01</span> Patterns</h2><button id="addPattern" title="Add a pattern">＋ Add</button></div><div id="patterns"></div><p class="hint">Separate text styles get separate masks. Patterns are listed in overlay order, bottom to top.</p></section>
 <section id="patternControls" hidden>
-<div class="section-title"><h2><span>02</span> Define the text</h2></div>
-<div class="tool-grid"><button id="templateTool">▧ Select template</button><button id="placeTool">▱ Add placement</button><button id="paintTool">◉ Paint strokes</button><button id="eraseTool">◌ Erase mask</button></div>
-<p class="hint" id="toolHint">Drag a tight box around one complete text pattern.</p>
+<div class="section-title"><h2><span>02</span> Mark every instance</h2></div>
+<div class="workflow-card"><strong id="workflowTitle">Mark instance 1</strong><p id="workflowHint">Draw one box around each copy of this same text. Start with the clearest copy; keep the full text inside every box.</p><div id="workflowCount" aria-live="polite">0 instances marked</div><button id="doneMarking" class="primary wide" disabled>Done marking instances → Find text</button><button id="resumeMarking" class="wide" hidden>Mark more / adjust boxes</button></div>
+<div class="tool-grid"><button id="templateTool">▧ Mark an instance</button><button id="placeTool">↔ Edit boxes</button><button id="paintTool">◉ Paint strokes</button><button id="eraseTool">◌ Erase mask</button></div>
+<p class="hint" id="toolHint">Draw one box per copy. Drag its edge or corner handles to resize it.</p>
+<div id="boxEditor" class="box-editor" hidden><strong id="selectedBoxTitle">Selected box</strong><div class="geometry-fields"><label>X<input id="boxX" type="number" min="0" step="1"></label><label>Y<input id="boxY" type="number" min="0" step="1"></label><label>Width<input id="boxW" type="number" min="4" step="1"></label><label>Height<input id="boxH" type="number" min="4" step="1"></label></div><p id="boxFitInfo" class="hint"></p></div>
+<div id="placements" class="instance-list"></div>
 <div class="row"><label class="check"><input id="showMask" type="checkbox" checked> Show mask & boxes</label><button id="undoMask">Undo mask</button></div>
 <label class="field">Brush size <output id="brushOut">12 px</output><input id="brush" type="range" min="1" max="80" value="12"></label>
 <details><summary>Estimate a mask from the image</summary><p class="hint">Starting guess for light text. Image details can be mistaken for strokes; refine with the brush. Re-estimating replaces brush edits.</p>
 <label class="field">Background radius <output id="radiusOut">12 px</output><input id="radius" type="range" min="2" max="60" value="12"></label>
 <label class="field">Stroke threshold <output id="thresholdOut">15%</output><input id="threshold" type="range" min="0" max="90" value="15"></label>
 <label class="field">Edge softness <output id="softnessOut">25%</output><input id="softness" type="range" min="1" max="100" value="25"></label>
-<button id="estimate" class="wide">Re-estimate strokes</button></details>
+<button id="estimate" class="wide">Re-estimate & align all boxes</button></details>
 <div class="row spaced"><label class="button" for="maskUpload">Import mask PNG</label><input id="maskUpload" type="file" accept="image/png" hidden><button id="exportMask">Export mask</button></div>
-<details><summary>Repeated placements <span id="placementCount">0</span></summary><p class="hint">Drag more boxes, or suggest repeats at the same size and rotation. Review suggestions before applying.</p><label class="field">Match confidence <output id="confidenceOut">72%</output><input id="confidence" type="range" min="40" max="95" value="72"></label><div class="row"><button id="find">Find repeats</button><button id="cancel" hidden>Cancel</button></div><div id="candidates"></div><div id="placements"></div></details>
+<label class="field">Match confidence <output id="confidenceOut">55%</output><input id="confidence" type="range" min="20" max="95" value="55"></label><p class="hint">Low-confidence fits stay off until you choose “Use fit.” Change confidence, then press “Find text again” to recheck. Dashed outlines show the detected text.</p>
+<details><summary>Optional: suggest more instances <span id="placementCount">0</span></summary><p class="hint">Search the whole image for more copies at the same size and rotation. Review suggestions, then finish marking to align them.</p><div class="row"><button id="find">Suggest more boxes</button></div><div id="candidates"></div></details>
+<button id="cancel" class="wide" hidden>Cancel text search</button>
 </section>
 <section id="adjustControls" hidden><div class="section-title"><h2><span>03</span> Tune the removal</h2></div>
 <label class="field">Text opacity <output id="opacityOut">25.0%</output><input id="opacity" type="range" min="0" max="90" step="0.1" value="25"></label>
@@ -31,7 +36,7 @@
 </aside>
 <div class="workspace">
 <nav class="toolbar" aria-label="Image tools"><div class="row"><button id="panTool" class="active">✥ Pan</button><span class="divider"></span><button id="zoomOut" aria-label="Zoom out">−</button><output id="zoomLabel">100%</output><button id="zoomIn" aria-label="Zoom in">＋</button><button id="fit">Fit</button><button id="actual">1:1</button></div><div class="row"><label class="compact inline">View<select id="view"><option value="split">Before / after</option><option value="result">Result</option><option value="original">Original</option></select></label><button id="export" class="primary" disabled>Export PNG ↗</button></div></nav>
-<div id="stage" tabindex="0" aria-label="Image editing canvas. Scroll to zoom. Space and drag to pan. Use selection buttons to draw boxes.">
+<div id="stage" tabindex="0" aria-label="Image editing canvas. Draw one box per text instance. Drag edge or corner handles to resize. Space and drag pans; scroll zooms.">
 <canvas id="canvas"></canvas>
 <div id="empty"><div class="empty-icon">▧</div><h2>Bring your image into focus.</h2><p>Open an image to start removing light, translucent text.<br>Your original stays untouched. Processing happens here.</p><label class="button primary" for="upload">Choose an image</label><button id="emptyDemo">Explore the demo</button><div class="empty-notes"><span>01 &nbsp; Select</span><span>02 &nbsp; Refine</span><span>03 &nbsp; Compare</span></div></div>
 <span id="beforeTag" class="canvas-tag" hidden>ORIGINAL</span><span id="afterTag" class="canvas-tag right" hidden>PROCESSED</span>

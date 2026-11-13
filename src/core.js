@@ -41,6 +41,14 @@ export function maskAt(pattern, rect, x, y) {
   return (at(x0,y0)*(1-tx)+at(x0+1,y0)*tx)*(1-ty)+(at(x0,y0+1)*(1-tx)+at(x0+1,y0+1)*tx)*ty;
 }
 
+// Version 2 boxes are search bounds. A match is a separate, unscaled mask
+// placement found inside those bounds. Legacy projects retain their old fits.
+export function placementFor(pattern,box){
+  if(pattern.phase==='marking'||pattern.phase==='analyzing')return null;
+  if(pattern.layoutVersion===2)return box.accepted&&box.match?box.match:null;
+  return box;
+}
+
 // Patterns list the order overlays were applied. Undo in reverse order.
 // Every render begins from the immutable upload, never the preceding preview.
 export function deblend(original, w, h, patterns) {
@@ -49,7 +57,12 @@ export function deblend(original, w, h, patterns) {
   let clipped = 0;
   for (const p of [...patterns].reverse()) {
     if (!p.enabled || !p.mask) continue;
-    for (const r of [...p.boxes].reverse()) {
+    const seen=new Set();
+    for (const box of [...p.boxes].reverse()) {
+      const r=placementFor(p,box);if(!r)continue;
+      const key=`${r.x},${r.y},${r.w},${r.h}`;
+      if(p.layoutVersion===2&&seen.has(key))continue;
+      seen.add(key);
       for (let y = Math.max(0, Math.floor(r.y)); y < Math.min(h, r.y+r.h); y++) {
         for (let x = Math.max(0, Math.floor(r.x)); x < Math.min(w, r.x+r.w); x++) {
           const a = clamp(p.opacity * maskAt(p,r,x,y), 0, .98);
@@ -68,6 +81,89 @@ export function deblend(original, w, h, patterns) {
   }
   for (const v of touched) clipped += v;
   return { pixels: Uint8ClampedArray.from(output), clipped };
+}
+
+function localFeature(image,w,h,rect,radius){
+  const x0=Math.max(0,rect.x-radius),y0=Math.max(0,rect.y-radius);
+  const rw=Math.min(w,rect.x+rect.w+radius)-x0,rh=Math.min(h,rect.y+rect.h+radius)-y0;
+  const values=new Float32Array(rw*rh);
+  for(let y=0;y<rh;y++)for(let x=0;x<rw;x++){
+    const i=((y+y0)*w+x+x0)*4;values[y*rw+x]=Math.min(image[i],image[i+1],image[i+2]);
+  }
+  const bg=boxBlur(values,rw,rh,radius),out=new Float32Array(rect.w*rect.h);
+  for(let y=0;y<rect.h;y++)for(let x=0;x<rect.w;x++){
+    const i=(y+rect.y-y0)*rw+x+rect.x-x0;
+    out[y*rect.w+x]=Math.max(0,(values[i]-bg[i])/Math.max(12,255-bg[i]));
+  }
+  return out;
+}
+
+export function cropMask(mask,mw,mh,origin){
+  let x0=mw,y0=mh,x1=-1,y1=-1;
+  for(let y=0;y<mh;y++)for(let x=0;x<mw;x++)if(mask[y*mw+x]>24){x0=Math.min(x0,x);y0=Math.min(y0,y);x1=Math.max(x1,x);y1=Math.max(y1,y);}
+  if(x1<0)throw new Error('No light text found in the first box. Tighten that box or change the mask settings.');
+  x0=Math.max(0,x0-2);y0=Math.max(0,y0-2);x1=Math.min(mw-1,x1+2);y1=Math.min(mh-1,y1+2);
+  const cw=x1-x0+1,ch=y1-y0+1,cropped=new Uint8Array(cw*ch);
+  for(let y=0;y<ch;y++)cropped.set(mask.subarray((y+y0)*mw+x0,(y+y0)*mw+x0+cw),y*cw);
+  return{mask:cropped,mw:cw,mh:ch,template:{x:origin.x+x0,y:origin.y+y0,w:cw,h:ch}};
+}
+
+export function alignInBox(image,w,h,pattern,box){
+  const {mw, mh, mask}=pattern;
+  if(box.w<mw||box.h<mh)return{match:null,score:0,reason:'Box smaller than the text template. Enlarge it.'};
+  const feature=localFeature(image,w,h,box,pattern.radius||12),points=[];
+  const sampleStep=Math.max(1,Math.floor(Math.sqrt(mw*mh/1600)));
+  for(let y=0;y<mh;y+=sampleStep)for(let x=0;x<mw;x+=sampleStep)points.push({x,y,v:mask[y*mw+x]/255});
+  const mean=points.reduce((s,p)=>s+p.v,0)/points.length;
+  const variance=points.reduce((s,p)=>s+(p.v-mean)**2,0);
+  if(variance<.001)return{match:null,score:0,reason:'Mask needs both strokes and empty background.'};
+  const scoreAt=(x,y)=>{
+    let sum=0,square=0,dot=0;
+    for(const p of points){const v=feature[(y+p.y)*box.w+x+p.x];sum+=v;square+=v*v;dot+=(p.v-mean)*v;}
+    return dot/Math.sqrt(Math.max(1e-12,variance*(square-sum*sum/points.length)));
+  };
+  const maxX=box.w-mw,maxY=box.h-mh;
+  const step=Math.max(1,Math.ceil(Math.sqrt((maxX+1)*(maxY+1)/16000)));
+  const best=[];
+  const consider=(x,y)=>{const score=scoreAt(x,y);best.push({x,y,score});best.sort((a,b)=>b.score-a.score);if(best.length>12)best.pop();};
+  for(let y=0;y<=maxY;y+=step)for(let x=0;x<=maxX;x+=step)consider(x,y);
+  // Always sample right/bottom boundaries and a known prior alignment.
+  for(let x=0;x<=maxX;x+=step)consider(x,maxY);
+  for(let y=0;y<=maxY;y+=step)consider(maxX,y);
+  consider(maxX,maxY);
+  const prior=box.match||pattern.template;
+  if(prior&&prior.x>=box.x&&prior.y>=box.y&&prior.x<=box.x+maxX&&prior.y<=box.y+maxY)consider(prior.x-box.x,prior.y-box.y);
+  let winner=best[0];
+  if(step>1)for(const candidate of [...best]){
+    for(let y=Math.max(0,candidate.y-step);y<=Math.min(maxY,candidate.y+step);y++)for(let x=Math.max(0,candidate.x-step);x<=Math.min(maxX,candidate.x+step);x++){
+      const score=scoreAt(x,y);if(score>winner.score)winner={x,y,score};
+    }
+  }
+  return{match:{x:box.x+winner.x,y:box.y+winner.y,w:mw,h:mh},score:Math.max(0,winner.score)};
+}
+
+export function analyzePattern(image,w,h,pattern,minScore=.55,reestimate=false,progress=()=>{}){
+  let p={...pattern};
+  if(!p.boxes.length)throw new Error('Mark at least one instance first.');
+  if(p.boxes.some(b=>b.w*b.h>4_000_000))throw new Error('Use search boxes under 4 million pixels.');
+  if(!p.mask||reestimate){
+    const first=p.boxes[0];
+    const mask=estimateMask(image,w,h,first,p.radius,p.threshold,p.softness);
+    p={...p,...cropMask(mask,first.w,first.h,first)};
+  }
+  else if(p.layoutVersion!==2)p={...p,...cropMask(p.mask,p.mw,p.mh,p.template||p.boxes[0])};
+  const boxes=p.boxes.map((box,i)=>{
+    const result=alignInBox(image,w,h,p,box);
+    progress((i+1)/p.boxes.length);
+    return{...box,reason:null,duplicate:false,...result,accepted:!!result.match&&result.score>=minScore};
+  });
+  const seen=new Map();
+  for(let i=0;i<boxes.length;i++){
+    const box=boxes[i];if(!box.match)continue;const key=`${box.match.x},${box.match.y}`;
+    if(seen.has(key)){box.accepted=false;box.reason=`Same text instance as box ${seen.get(key)+1}.`;box.duplicate=true;}
+    else seen.set(key,i);
+  }
+  return{mask:p.mask,mw:p.mw,mh:p.mh,template:boxes[0].match||p.template,boxes,layoutVersion:2,phase:'ready'};
 }
 
 // Candidate suggestions only: same scale and rotation. Sparse normalized

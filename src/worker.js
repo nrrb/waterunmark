@@ -1,4 +1,4 @@
-import { estimateMask, deblend, findRepeats } from './core.js';
+import { estimateMask, deblend, findRepeats, analyzePattern } from './core.js';
 let original, width, height;
 self.onmessage = ({data:m}) => {
   try {
@@ -15,6 +15,10 @@ self.onmessage = ({data:m}) => {
     if(m.type==='find'){
       const boxes=findRepeats(original,width,height,m.pattern,m.minScore,progress=>self.postMessage({id:m.id,type:'progress',progress}));
       self.postMessage({id:m.id,type:'find',boxes});
+    }
+    if(m.type==='analyze'){
+      const result=analyzePattern(original,width,height,m.pattern,m.minScore,m.reestimate,progress=>self.postMessage({id:m.id,type:'progress',task:'align',progress}));
+      self.postMessage({id:m.id,type:'analyze',result},[result.mask.buffer]);
     }
   }catch(error){self.postMessage({id:m.id,type:'error',error:error.message});}
 };
